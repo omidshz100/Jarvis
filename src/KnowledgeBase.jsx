@@ -64,7 +64,7 @@ export function KnowledgeBase({ config }) {
       }
     } catch (e) {
       console.error(e);
-      alert("Failed to save article. Make sure your Gemini API key is configured in System Preferences.");
+      alert(`Failed to save article: ${e.message || 'Unknown error occurred.'}`);
     } finally {
       setIsSubmitting(false);
     }
