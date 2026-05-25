@@ -6,6 +6,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const multer = require('multer');
+const os = require('os');
 
 const app = express();
 app.use(cors());
@@ -14,7 +15,8 @@ app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 3000;
 const audiosDir = path.join(__dirname, 'audios');
-const rhubarbPath = path.join(__dirname, 'bin', 'rhubarb');
+const rhubarbExecutable = os.platform() === 'win32' ? 'rhubarb.exe' : 'rhubarb';
+const rhubarbPath = path.join(__dirname, 'bin', rhubarbExecutable);
 const uploadsDir = path.join(__dirname, 'uploads');
 
 // Ensure directories exist
