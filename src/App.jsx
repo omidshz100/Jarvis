@@ -101,7 +101,7 @@ function App() {
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem('jarvis_llm_config');
     return saved ? JSON.parse(saved) : {
-      provider: 'gemini',
+      provider: 'ollama',
       geminiKey: '',
       openaiKey: '',
       ollamaUrl: 'http://localhost:11434',
