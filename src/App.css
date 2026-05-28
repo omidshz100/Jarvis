@@ -27,6 +27,7 @@
   background: var(--accent-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  border-bottom: 2px solid #ff4757; /* CSS Reload Test Signal */
 }
 
 .nav-links {
@@ -321,4 +322,140 @@
 @keyframes bounce {
   0%, 80%, 100% { transform: scale(0); }
   40% { transform: scale(1); }
+}
+
+/* Custom layouts previously handled inline */
+.main-content {
+  flex-direction: row;
+}
+
+.avatar-section {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-section {
+  flex: 1.2;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.widgets-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 100%;
+  gap: 16px;
+}
+
+.sidebar-battery {
+  margin-top: auto;
+}
+
+/* Totem Kiosk / Portrait Orientation Optimization */
+@media (max-width: 1200px) or (orientation: portrait) or (max-aspect-ratio: 1/1) {
+  .app-container {
+    flex-direction: column;
+    height: 100vh;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .main-content {
+    flex-direction: column;
+    gap: 12px;
+    order: 1;
+    height: calc(100vh - 100px); /* Leave space for bottom nav bar + gap */
+    flex: 1;
+  }
+
+  .avatar-section {
+    flex: 1.6; /* Taller avatar display to fit the Totem screen */
+    min-height: 40vh;
+  }
+
+  .chat-section {
+    flex: 1;
+    min-height: 30vh;
+    gap: 8px;
+  }
+
+  /* Compact header widgets */
+  .header {
+    padding: 12px 16px;
+  }
+
+  .widgets-container {
+    gap: 8px;
+  }
+
+  .widget {
+    padding: 8px 12px;
+    border-radius: 12px;
+  }
+
+  .widget-icon {
+    padding: 6px;
+  }
+
+  .widget-info p {
+    font-size: 0.9rem;
+  }
+
+  /* Bottom Navigation Bar style override */
+  .sidebar {
+    width: 100% !important;
+    height: 72px !important;
+    min-height: 72px !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 8px 24px !important;
+    order: 2;
+    border-radius: 16px !important;
+  }
+
+  .sidebar .brand {
+    margin-bottom: 0 !important;
+    gap: 8px;
+  }
+
+  .sidebar .brand h1 {
+    font-size: 1.2rem !important;
+  }
+
+  .sidebar .brand svg {
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  .sidebar .nav-links {
+    flex-direction: row !important;
+    justify-content: center !important;
+    gap: 16px !important;
+    flex: 1 !important;
+    margin: 0 16px;
+  }
+
+  .sidebar .nav-item {
+    padding: 8px 14px !important;
+    border-radius: 10px !important;
+    font-size: 0.9rem;
+    gap: 8px;
+  }
+
+  .sidebar .nav-item.active {
+    border-left: none !important;
+    border-bottom: 3px solid var(--accent-primary) !important;
+    border-radius: 10px 10px 4px 4px !important;
+    background: rgba(0, 210, 255, 0.08) !important;
+  }
+
+  .sidebar-battery {
+    margin-top: 0 !important;
+    margin-left: auto;
+  }
 }

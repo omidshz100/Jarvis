@@ -25,6 +25,19 @@ function App() {
   // Explicit Conversation State Machine
   // IDLE | USER_SPEAKING | PROCESSING_STT | PROCESSING_LLM | PROCESSING_TTS | AVATAR_SPEAKING | AVATAR_PAUSED
   const [conversationState, setConversationState] = useState('IDLE');
+  const conversationStateRef = useRef(conversationState);
+  useEffect(() => {
+    conversationStateRef.current = conversationState;
+  }, [conversationState]);
+
+  const [speechLanguage, setSpeechLanguage] = useState(() => {
+    return localStorage.getItem('jarvis_speech_lang') || 'it-IT';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('jarvis_speech_lang', speechLanguage);
+  }, [speechLanguage]);
+
   const [playingMessageIndex, setPlayingMessageIndex] = useState(-1);
   const [playbackRate, setPlaybackRate] = useState(1);
   
@@ -159,16 +172,33 @@ function App() {
     };
     
     recognition.onerror = (e) => {
-      console.error('Speech Rec Error', e);
-      if (conversationState === 'USER_SPEAKING') {
-        setConversationState('IDLE');
+      // Ignore errors when user is not actively speaking (e.g. abort() called on send)
+      if (conversationStateRef.current !== 'USER_SPEAKING') {
+        console.log('Ignoring speech recognition error outside USER_SPEAKING state:', e.error);
+        return;
       }
+      if (e.error === 'aborted') {
+        console.log('Speech recognition aborted (intentional).');
+        return;
+      }
+      if (e.error === 'no-speech') {
+        console.log('Speech recognition: no speech detected.');
+        setConversationState('IDLE');
+        return;
+      }
+      
+      console.error('Speech Rec Error', e);
+      setConversationState('IDLE');
+      setMessages(prev => [
+        ...prev,
+        { role: 'jarvis', text: `Speech Recognition Error: ${e.error || 'unknown'}. (Ensure a physical microphone is connected, browser permission is allowed, and you are using HTTPS).` }
+      ]);
     };
     
     recognition.onend = () => {
       // If it ends naturally and we are still in USER_SPEAKING, just wait for Send
     };
-  }, [conversationState]);
+  }, []);
 
   const toggleListen = () => {
     preInitializeVoice();
@@ -176,13 +206,32 @@ function App() {
     
     if (conversationState === 'IDLE') {
       setConversationState('USER_SPEAKING');
-      recognition.start();
+      try {
+        recognition.lang = speechLanguage;
+        recognition.start();
+      } catch (e) {
+        console.error(e);
+      }
+    } else if (conversationState === 'USER_SPEAKING') {
+      try {
+        recognition.abort();
+      } catch (e) {
+        console.error(e);
+      }
+      setConversationState('IDLE');
     }
   };
 
   const handleInterrupt = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+    }
+    if (recognition) {
+      try {
+        recognition.abort();
+      } catch (e) {
+        console.error(e);
+      }
     }
     interruptSpeaking();
     setConversationState('IDLE');
@@ -205,8 +254,12 @@ function App() {
   const handleSend = async () => {
     preInitializeVoice();
     
-    if (conversationState === 'USER_SPEAKING' && recognition) {
-      recognition.stop();
+    if (recognition) {
+      try {
+        recognition.abort();
+      } catch (e) {
+        console.error(e);
+      }
     }
     
     if (!input.trim()) {
@@ -293,7 +346,9 @@ function App() {
         // Wait for LLM to finish completely, THEN generate one continuous voice track
         if (fullResponse.trim().length > 0) {
           setPlayingMessageIndex(newHistory.length); // The index of the new jarvis message
-          speakText(fullResponse);
+          // Strip media tags so the spoken text matches the displayed message text exactly for caching
+          const speechText = fullResponse.replace(/\[MEDIA:\d+\]/g, '');
+          speakText(speechText);
         } else if (pendingVideoUrlRef.current) {
           // Fallback if LLM generated no text
           setActiveVideoUrl(pendingVideoUrlRef.current);
@@ -397,17 +452,17 @@ function App() {
           </div>
         </nav>
         
-        <div className="nav-item" style={{ marginTop: 'auto' }}>
+        <div className="nav-item sidebar-battery">
           <Battery size={20} color="#2ed573" />
           <span>Core Power: 98%</span>
         </div>
       </aside>
 
       {/* Main Content (Split View) */}
-      <main className="main-content" style={{ flexDirection: 'row', gap: '16px' }}>
+      <main className="main-content">
         
         {/* Avatar Section */}
-        <div className="avatar-section glass-panel" style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div className="avatar-section glass-panel">
            <div style={{ position: 'absolute', top: 24, left: 32, zIndex: 10 }}>
               <div className="brand" style={{ marginBottom: 0 }}>
                 <h2 style={{fontSize: '1.2rem', margin: 0}}>AVATAR INTERFACE</h2>
@@ -549,11 +604,11 @@ function App() {
         </div>
 
         {/* Chat / Dashboard Section */}
-        <div className="chat-section" style={{ flex: 1.2, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="chat-section">
           
           {/* Header Widgets */}
-          <div className="header glass-panel" style={{ padding: '20px' }}>
-            <div className="widgets-container" style={{ width: '100%', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="header glass-panel">
+            <div className="widgets-container">
                <div className="widget" style={{ padding: '12px' }}>
                 <div className="widget-icon"><Clock size={16} /></div>
                 <div className="widget-info">
@@ -581,8 +636,40 @@ function App() {
           {/* Chat Interface */}
           <div className="chat-container glass-panel">
             {/* Status Bar */}
-            <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.2)' }}>
+            <div style={{ 
+              padding: '12px 20px', 
+              borderBottom: '1px solid rgba(255,255,255,0.1)', 
+              background: 'rgba(0,0,0,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap'
+            }}>
               {renderStatusBar()}
+              
+              {/* Language Selector */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Mic:</span>
+                <select 
+                  value={speechLanguage} 
+                  onChange={(e) => setSpeechLanguage(e.target.value)}
+                  style={{ 
+                    background: 'rgba(255,255,255,0.1)', 
+                    color: 'var(--text-primary)', 
+                    border: '1px solid rgba(255,255,255,0.15)', 
+                    borderRadius: '6px', 
+                    padding: '4px 8px', 
+                    fontSize: '0.8rem', 
+                    outline: 'none',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit'
+                  }}
+                >
+                  <option value="it-IT" style={{ backgroundColor: '#141419', color: '#ffffff' }}>Italiano</option>
+                  <option value="en-US" style={{ backgroundColor: '#141419', color: '#ffffff' }}>English</option>
+                </select>
+              </div>
             </div>
             
             <div className="chat-messages">
@@ -730,13 +817,13 @@ function App() {
                   onKeyPress={handleKeyPress}
                   disabled={isInputDisabled}
                 />
-                {conversationState === 'IDLE' && (
+                {(conversationState === 'IDLE' || conversationState === 'USER_SPEAKING') && (
                   <button 
-                    className="voice-btn"
+                    className={`voice-btn ${conversationState === 'USER_SPEAKING' ? 'listening' : ''}`}
                     onClick={toggleListen}
-                    title="Start Voice Input"
+                    title={conversationState === 'USER_SPEAKING' ? "Stop Voice Input" : "Start Voice Input"}
                   >
-                    <Mic size={20} />
+                    {conversationState === 'USER_SPEAKING' ? <Square size={20} /> : <Mic size={20} />}
                   </button>
                 )}
               </div>
