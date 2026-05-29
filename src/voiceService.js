@@ -10,8 +10,43 @@ let globalOnEnd = null;
 let globalOnFetchStart = null;
 let abortController = null;
 
+let useBrowserTts = true; // Default to true (Option 3), toggleable via settings
+let audioContext = null;
+let analyser = null;
+let sourceNode = null;
+
 // The global callback to pass lipsync data to the Avatar
 export let onLipsyncData = null;
+
+export function setUseBrowserTts(val) {
+  useBrowserTts = val;
+}
+
+export function getAudioVolumeAnalyser() {
+  if (!globalAudio) return null;
+  
+  if (!audioContext) {
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      audioContext = new AudioContextClass();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      
+      sourceNode = audioContext.createMediaElementSource(globalAudio);
+      sourceNode.connect(analyser);
+      analyser.connect(audioContext.destination);
+    } catch (e) {
+      console.error("Failed to initialize Web Audio Analyser:", e);
+    }
+  }
+  
+  // Resume context if suspended (browser security restriction on autoplay)
+  if (audioContext && audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
+  }
+  
+  return analyser;
+}
 
 export function initVoice(onStart, onEnd, onFetchStart) {
   globalOnStart = onStart;
@@ -40,6 +75,21 @@ export function setPlaybackRate(rate) {
 }
 
 export function togglePlayPause() {
+  if (useBrowserTts) {
+    if (window.speechSynthesis) {
+      if (isPlaying && !isPaused) {
+        window.speechSynthesis.pause();
+        isPaused = true;
+        return 'paused';
+      } else if (isPlaying && isPaused) {
+        window.speechSynthesis.resume();
+        isPaused = false;
+        return 'playing';
+      }
+    }
+    return 'stopped';
+  }
+
   if (!globalAudio) return 'stopped';
   
   if (isPlaying && !isPaused) {
@@ -100,6 +150,57 @@ function processQueue() {
   
   const text = speechQueue.shift();
   
+  if (useBrowserTts) {
+    if (globalOnStart) globalOnStart(); // Tell UI we started speaking
+    
+    // Create SpeechSynthesisUtterance
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Attempt to set a high quality voice based on system availability
+    const voices = window.speechSynthesis.getVoices();
+    const preferredLang = localStorage.getItem('jarvis_speech_lang') || 'it-IT';
+    
+    // Try to find a voice that matches preferredLang
+    let preferredVoice = voices.find(v => v.lang.toLowerCase().startsWith(preferredLang.toLowerCase().split('-')[0]));
+    
+    // Fallback if no matching voice is found
+    if (!preferredVoice) {
+      preferredVoice = voices.find(v => v.lang.startsWith('it')) || voices.find(v => v.lang.startsWith('en'));
+    }
+    
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+      utterance.lang = preferredVoice.lang;
+    }
+    
+    utterance.rate = globalPlaybackRate;
+    
+    utterance.onend = () => {
+      isPlaying = false;
+      isPaused = false;
+      if (onLipsyncData) onLipsyncData(null, null); // Clear lipsync
+      if (speechQueue.length > 0) {
+        processQueue();
+      } else {
+        if (globalOnEnd) globalOnEnd(); // Tell UI we are done speaking
+      }
+    };
+    
+    utterance.onerror = (e) => {
+      console.error("SpeechSynthesis Error:", e);
+      isPlaying = false;
+      isPaused = false;
+      if (speechQueue.length > 0) processQueue();
+      else if (globalOnEnd) globalOnEnd();
+    };
+    
+    // Call the lipsync callback with null cues to let Avatar know it is playing via browser TTS
+    if (onLipsyncData) onLipsyncData(null, null);
+    
+    window.speechSynthesis.speak(utterance);
+    return;
+  }
+  
   // Instant replay if we have the TTS cached
   if (audioCache[text]) {
     playData(audioCache[text]);
@@ -108,7 +209,8 @@ function processQueue() {
   
   if (globalOnFetchStart) globalOnFetchStart(); // Tell UI we are fetching TTS
   
-  const url = `/tts?q=${encodeURIComponent(text)}`;
+  const preferredLang = localStorage.getItem('jarvis_speech_lang') || 'it-IT';
+  const url = `/tts?q=${encodeURIComponent(text)}&lang=${preferredLang.split('-')[0]}`;
   abortController = new AbortController();
   
   fetch(url, { signal: abortController.signal })
@@ -145,6 +247,9 @@ export function stopSpeaking() {
   if (globalAudio) {
     globalAudio.pause();
     globalAudio.currentTime = 0;
+  }
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
   }
   speechQueue = [];
   isPlaying = false;

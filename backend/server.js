@@ -139,8 +139,9 @@ app.post('/api/search', (req, res) => {
 
     // Sort by descending score
     results.sort((a, b) => b.score - a.score);
-    // Return top 3 matches
-    res.json(results.slice(0, 3));
+    // Filter results to only keep relevant articles with score >= 0.35, then return the single best match to minimize tokens
+    const filteredResults = results.filter(r => r.score >= 0.35);
+    res.json(filteredResults.slice(0, 1));
   });
 });
 
@@ -156,17 +157,14 @@ app.delete('/api/articles/:id', (req, res) => {
 app.get('/tts', async (req, res) => {
   try {
     const text = req.query.text || req.query.q; 
+    const lang = req.query.lang || 'it';
+    
     if (!text) {
       return res.status(400).json({ error: 'Text query parameter is required' });
     }
 
-    const timestamp = Date.now();
-    const mp3Path = path.join(audiosDir, `${timestamp}.mp3`);
-    const wavPath = path.join(audiosDir, `${timestamp}.wav`);
-    const jsonPath = path.join(audiosDir, `${timestamp}.json`);
-
     const audioChunks = await googleTTS.getAllAudioBase64(text, {
-      lang: 'en',
+      lang: lang,
       slow: false,
       host: 'https://translate.google.com',
       splitPunct: ',.?',
@@ -176,27 +174,14 @@ app.get('/tts', async (req, res) => {
     const combinedBuffer = Buffer.concat(audioBuffers);
     const base64Audio = combinedBuffer.toString('base64');
     
-    await fs.writeFile(mp3Path, combinedBuffer);
-    await execCommand(`ffmpeg -y -i "${mp3Path}" "${wavPath}"`);
-    await execCommand(`"${rhubarbPath}" -f json -o "${jsonPath}" "${wavPath}" -r phonetic`);
-
-    const jsonContent = await fs.readFile(jsonPath, 'utf8');
-    const lipsyncData = JSON.parse(jsonContent);
-
-    Promise.all([
-      fs.unlink(mp3Path).catch(() => {}),
-      fs.unlink(wavPath).catch(() => {}),
-      fs.unlink(jsonPath).catch(() => {})
-    ]);
-
     res.json({
       audio: base64Audio,
-      lipsync: lipsyncData
+      lipsync: { mouthCues: [] }
     });
 
   } catch (error) {
-    console.error('TTS/Lipsync Generation Error:', error);
-    res.status(500).json({ error: 'Failed to generate speech and lipsync' });
+    console.error('TTS Generation Error:', error);
+    res.status(500).json({ error: 'Failed to generate speech' });
   }
 });
 

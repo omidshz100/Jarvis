@@ -4,7 +4,7 @@ import { useAnimations, TransformControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { VRMLoaderPlugin } from '@pixiv/three-vrm';
-import { setLipsyncCallback } from './voiceService';
+import { setLipsyncCallback, getAudioVolumeAnalyser } from './voiceService';
 
 // Standard GLB RPM/Mixamo Morph Targets
 const rhubarbToMorphTarget = {
@@ -96,12 +96,33 @@ export function Avatar({ isSpeaking, avatarUrl, avatarExt, gesture = 'idle', cus
         vrm.expressionManager.setValue(exp, 0);
       });
       
-      if (isSpeaking && currentCue) {
-        const vrmExpr = rhubarbToVRM[currentCue.value];
-        if (vrmExpr) {
-          vrm.expressionManager.setValue(vrmExpr, 1);
+      if (isSpeaking) {
+        if (currentCue) {
+          const vrmExpr = rhubarbToVRM[currentCue.value];
+          if (vrmExpr) {
+            vrm.expressionManager.setValue(vrmExpr, 1);
+          } else {
+            vrm.expressionManager.setValue('neutral', 1);
+          }
         } else {
-          vrm.expressionManager.setValue('neutral', 1);
+          // Fallback: Real-time Volume-based Lip-Sync (Option 1)
+          const analyser = getAudioVolumeAnalyser();
+          let volume = 0;
+          if (analyser) {
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteTimeDomainData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              const floatVal = (dataArray[i] - 128) / 128;
+              sum += floatVal * floatVal;
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            volume = Math.min(1.0, rms * 5.0); // Boost sensitivity slightly
+          } else {
+            // Procedural backup if analyser is not loaded or suspended
+            volume = Math.max(0, (Math.sin(state.clock.elapsedTime * 10) * 0.4 + Math.sin(state.clock.elapsedTime * 17) * 0.3 + 0.4));
+          }
+          vrm.expressionManager.setValue('aa', volume);
         }
       } else {
         // Idle closed mouth
@@ -234,14 +255,41 @@ export function Avatar({ isSpeaking, avatarUrl, avatarExt, gesture = 'idle', cus
           });
 
           // Apply current morph target
-          if (isSpeaking && currentCue) {
-            const target = rhubarbToMorphTarget[currentCue.value];
-            if (target) {
-              const index = child.morphTargetDictionary[target];
+          if (isSpeaking) {
+            if (currentCue) {
+              const target = rhubarbToMorphTarget[currentCue.value];
+              if (target) {
+                const index = child.morphTargetDictionary[target];
+                if (index !== undefined) {
+                  child.morphTargetInfluences[index] = THREE.MathUtils.lerp(
+                    child.morphTargetInfluences[index],
+                    1,
+                    0.3
+                  );
+                }
+              }
+            } else {
+              // Fallback: Volume-based morph targets for standard GLB models
+              const analyser = getAudioVolumeAnalyser();
+              let volume = 0;
+              if (analyser) {
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteTimeDomainData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                  const floatVal = (dataArray[i] - 128) / 128;
+                  sum += floatVal * floatVal;
+                }
+                const rms = Math.sqrt(sum / dataArray.length);
+                volume = Math.min(1.0, rms * 5.0);
+              } else {
+                volume = Math.max(0, (Math.sin(state.clock.elapsedTime * 10) * 0.4 + Math.sin(state.clock.elapsedTime * 17) * 0.3 + 0.4));
+              }
+              const index = child.morphTargetDictionary['viseme_AA'];
               if (index !== undefined) {
                 child.morphTargetInfluences[index] = THREE.MathUtils.lerp(
                   child.morphTargetInfluences[index],
-                  1,
+                  volume,
                   0.3
                 );
               }

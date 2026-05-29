@@ -8,7 +8,7 @@ import './App.css';
 import { KnowledgeBase } from './KnowledgeBase';
 import { MediaCarousel } from './MediaCarousel';
 import { streamLLMResponse, generateEmbedding } from './llmService';
-import { initVoice, speakText, interruptSpeaking, preInitializeVoice, togglePlayPause, setPlaybackRate as setVoiceRate, stopSpeaking } from './voiceService';
+import { initVoice, speakText, interruptSpeaking, preInitializeVoice, togglePlayPause, setPlaybackRate as setVoiceRate, stopSpeaking, setUseBrowserTts } from './voiceService';
 import { Canvas } from '@react-three/fiber';
 import { Html, OrbitControls } from '@react-three/drei';
 import { Avatar } from './Avatar';
@@ -113,17 +113,20 @@ function App() {
 
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem('jarvis_llm_config');
-    return saved ? JSON.parse(saved) : {
-      provider: 'ollama',
-      geminiKey: '',
-      openaiKey: '',
-      ollamaUrl: 'http://localhost:11434',
-      ollamaModel: 'llama3'
+    const parsed = saved ? JSON.parse(saved) : {};
+    return {
+      provider: parsed.provider || 'ollama',
+      geminiKey: parsed.geminiKey || '',
+      openaiKey: parsed.openaiKey || '',
+      ollamaUrl: parsed.ollamaUrl || 'http://localhost:11434',
+      ollamaModel: parsed.ollamaModel || 'llama3',
+      useBrowserTts: parsed.useBrowserTts !== undefined ? parsed.useBrowserTts : true
     };
   });
   
   useEffect(() => {
     localStorage.setItem('jarvis_llm_config', JSON.stringify(config));
+    setUseBrowserTts(config.useBrowserTts);
   }, [config]);
 
   useEffect(() => {
@@ -313,14 +316,13 @@ function App() {
         let fullResponse = '';
         let mediaArticleTriggered = null;
 
-        await streamLLMResponse(modifiedHistory, config, (chunk) => {
+        await streamLLMResponse(modifiedHistory, { ...config, speechLanguage }, (chunk) => {
           fullResponse += chunk;
           
-          let textToRender = fullResponse;
+          let textToRender = fullResponse.replace(/\[MEDIA:\d+\]/g, ''); // Hide all media tags from UI
           const mediaMatch = fullResponse.match(/\[MEDIA:(\d+)\]/);
           if (mediaMatch) {
              const articleId = parseInt(mediaMatch[1]);
-             textToRender = fullResponse.replace(mediaMatch[0], ''); // Hide from UI
              if (ragContext) {
                 const found = ragContext.find(a => a.id === articleId);
                 if (found) mediaArticleTriggered = found;
@@ -919,6 +921,19 @@ function App() {
                 </div>
               </>
             )}
+            
+            <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
+              <input 
+                type="checkbox" 
+                id="useBrowserTts"
+                checked={config.useBrowserTts}
+                onChange={e => setConfig({...config, useBrowserTts: e.target.checked})}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              <label htmlFor="useBrowserTts" style={{ cursor: 'pointer', fontSize: '0.9rem', userSelect: 'none' }}>
+                Use Client-Side Voice (Instant Web Speech API)
+              </label>
+            </div>
             
             <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
               <button className="glass-button primary" onClick={() => setShowSettings(false)}>

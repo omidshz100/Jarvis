@@ -9,18 +9,22 @@ import OpenAI from 'openai';
  * @param {AbortSignal} abortSignal - Optional signal to abort the generation
  */
 export async function streamLLMResponse(history, config, onChunk, abortSignal = null, ragContext = null) {
-  const { provider, geminiKey, openaiKey, ollamaUrl, ollamaModel } = config;
+  const { provider, geminiKey, openaiKey, ollamaUrl, ollamaModel, speechLanguage } = config;
+  const isIt = speechLanguage?.startsWith('it') || false;
+  const langName = isIt ? 'Italian' : 'English';
 
   if (provider === 'gemini') {
     if (!geminiKey) throw new Error("Gemini API key is missing. Please add it in System Preferences.");
     const ai = new GoogleGenAI({ apiKey: geminiKey });
     
-    const contents = history.map(msg => ({
+    // Only send the last 6 messages (3 conversation turns) to minimize token usage
+    const trimmedHistory = history.slice(-6);
+    const contents = trimmedHistory.map(msg => ({
       role: msg.role === 'jarvis' ? 'model' : 'user',
       parts: [{ text: msg.text }]
     }));
     
-    let systemInstruction = "You are Jarvis. Act as a proactive company representative.";
+    let systemInstruction = `You are Jarvis. Act as a proactive company representative. You MUST write your response in ${langName}. Keep your responses extremely concise (1-2 sentences max).`;
     if (ragContext && ragContext.length > 0) {
       systemInstruction += "\n\nYou have access to the following Knowledge Base projects/articles:\n";
       ragContext.forEach(article => {
@@ -62,12 +66,14 @@ export async function streamLLMResponse(history, config, onChunk, abortSignal = 
     dangerouslyAllowBrowser: true 
   });
   
-  let messages = history.map(msg => ({
+  // Only send the last 6 messages (3 conversation turns) to minimize token usage
+  const trimmedHistory = history.slice(-6);
+  let messages = trimmedHistory.map(msg => ({
     role: msg.role === 'jarvis' ? 'assistant' : 'user',
     content: msg.text
   }));
 
-  let systemInstruction = "You are Jarvis. Act as a proactive company representative.";
+  let systemInstruction = `You are Jarvis. Act as a proactive company representative. You MUST write your response in ${langName}. Keep your responses extremely concise (1-2 sentences max).`;
   if (ragContext && ragContext.length > 0) {
     systemInstruction += "\n\nYou have access to the following Knowledge Base projects/articles:\n";
     ragContext.forEach(article => {
@@ -80,7 +86,7 @@ export async function streamLLMResponse(history, config, onChunk, abortSignal = 
 
   try {
     const stream = await openai.chat.completions.create({
-      model: isOllama ? (ollamaModel || 'llama3') : 'gpt-3.5-turbo',
+      model: isOllama ? (ollamaModel || 'llama3') : 'gpt-4o-mini',
       messages,
       stream: true,
     }, { signal: abortSignal });
